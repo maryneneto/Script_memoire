@@ -1,30 +1,2128 @@
 ---
-title: "Script_memoire"
+title: "Script_rapport_corps_sports_de_force"
 author: "Maryne Neto"
 date: "2026-08-18"
-output: html_document
+output: github_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+Chargement des packages et des données
+
+```{r}
+library(tidyverse)
+library(questionr)
+library(labelled)
+library(snakecase)
+
+setwd("C:/Users/maryn/Desktop/memoireM2")
+data <- read_csv ("C:/Users/maryn/Desktop/memoireM2/base_16_08.csv")
+data <- data |> 
+  filter(lastpage >= 8) |> 
+  select(-c(2, 4:7, 245:335)) |> 
+  rename_with(snakecase::to_upper_lower_case)
+
+summary(data$lastpage)
+summary(data$interviewtime)
+str(data)
+
+data |> 
+  generate_dictionary() |> 
+  to_gt() |> 
+  gt::tab_header(gt::md("**Dictionnaire des variables**"))
+
 ```
 
-## R Markdown
+Cette partie est consacré au recodage et à la création d'indicateurs socio-démographiques
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+```{r}
+data$GEN <- data$GEN |>
+  fct_collapse(
+    "Homme" = c("A1","HOM"),
+    "Femme" = c("A2","FEM"),
+    "Autre" = c("A3","NSP")
+  )
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+data <- data |>
+  mutate(
+    GEN_DIC = as.factor(
+      if_else(
+        GEN != "Autre",
+        as.character(GEN),
+        NA_character_
+      )
+    )
+  )
+data$G
 
-```{r cars}
-summary(cars)
+data$GENSUBFEM <- data$GENSUBsq002 |>
+  fct_recode(
+    "NSP" = "AO05",
+    "Pas du tout feminin" = "AO04",
+    "Plutôt feminin" = "AO02",
+    "Très féminin" = "AO01",
+    "Un peu féminin" = "AO03"
+  )
+
+data$GENSUBMASC <- data$GENSUBsq001 |>
+  fct_recode(
+    "NSP" = "AO05",
+    "Pas du tout masculin" = "AO04",
+    "Plutôt masculin" = "AO02",
+    "Très masculin" = "AO01",
+    "Un peu masculin" = "AO03"
+  )
+
+
+data$GEN_com <- case_when(
+  
+  data$GEN %in% c("Homme", "Femme") ~ paste(
+    
+    data$GEN,
+    
+    if_else(
+      data$GENSUBMASC %in% c("Pas du tout masculin", "Un peu masculin"),
+      "pas masculin",
+      "masculin"
+    ),
+    
+    if_else(
+      data$GENSUBFEM %in% c("Pas du tout feminin", "Un peu feminin"),
+      "pas féminin",
+      "féminin"
+    )
+    
+  ),
+  
+  TRUE ~ NA_character_
+)
+
+
+data$ORSEX_rec <- data$ORSEX |>
+  fct_collapse(
+    "Hétérosexualité" = c("A2","HETER"),
+    "Non hétérosexualité" = c("A3", "A4","A5","BIS","HOMO")
+  )
+
+prop.table(table(homme$GENSUBMASC,homme$GENSUBFEM))*100
+
+prop.table(table(femme$GENSUBFEM, femme$GENSUBMASC))*100
+
+table(data$GENSUBMASC,data$GENSUBFEM)
+table(data$GEN,data$GENSUBFEM)
+table(data$GEN,data$GENSUBMASC)
+
+## Création de la variable DEVIANCE_GENRE
+data$DEVIANCE_GENRE <- ifelse(
+  
+  data$ORSEX_rec=="Non hétérosexualité" |
+    
+    ## Homme avec féminité élevée ou masculinité faible
+    (
+      data$GEN == "Homme" &
+        (
+          data$GENSUBFEM %in% c("Plutôt féminin", "Très féminin") |
+            data$GENSUBMASC %in% c("Peu masculin", "Pas du tout masculin")
+        )
+    ) |
+    
+    ## Femme avec masculinité élevée ou féminité faible
+    (
+      data$GEN == "Femme" &
+        (
+          data$GENSUBMASC %in% c("Très masculin", "Plutôt masculin") |
+            data$GENSUBFEM %in% c("Pas du tout féminin", "Peu féminin")
+        )
+    ) |
+    
+    ## Genre = autre
+    data$GEN == "Autre",
+  
+  "Oui", "Non"
+)
+
+table((data$DEVIANCE_GENRE))
+table(data$GEN,data$DEVIANCE_GENRE)
+
 ```
 
-## Including Plots
 
-You can also embed plots, for example:
+Recodage classe milieu social
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+```{r}
+
+table(data$PROFPE)
+
+data <- data %>%
+  mutate(
+    
+    PCS_PERE = case_when(
+      PROFPE %in% c( "A2","A3","A4"
+      ) ~ "Supérieure",
+      
+      PROFPE %in% c(
+       "A5"
+      ) ~ "Moyenne",
+      
+      PROFPE %in% c(
+        "A6","A7"
+      ) ~ "Populaire",
+      
+      TRUE ~ NA_character_
+    ),
+    
+    PCS_MERE = case_when(
+      PROFME %in% c("A","A3","A4"
+      ) ~ "Supérieure",
+      
+      PROFME %in% c("A10"
+      ) ~ "Moyenne",
+      
+      PROFME %in% c(
+        "A5","A6"
+      ) ~ "Populaire",
+      
+      TRUE ~ NA_character_
+    ),
+    
+    origine_sociale_simple = case_when(
+      PCS_PERE == "Supérieure" | PCS_MERE == "Supérieure" ~ "Supérieure",
+      PCS_PERE == "Moyenne"   | PCS_MERE == "Moyenne"   ~ "Moyenne",
+      PCS_PERE == "Populaire" | PCS_MERE == "Populaire" ~ "Populaire",
+      TRUE ~ NA_character_
+    ),
+    PCS_parents=case_when(
+      PROFPE=="A4"& PROFME=="A4" ~ "IA",
+      (PROFPE=="A5"&PROFME=="A4")|(PROFPE=="A4"&PROFME=="A10")~"IB",
+      (PROFPE=="A4"&(PROFME=="A5"|PROFME=="A6"))|((PROFPE=="A6"|PROFPE=="A7")& PROFME=="A4") ~ "IIA",
+        (PROFPE=="A4"&(PROFME=="A7"|PROFME=="A9"))|((PROFPE=="A8"|PROFPE=="A10")& PROFME=="A4")~ "IIB",
+      (PROFPE=="A3"&(PROFME=="A4"|PROFME=="A10"))|((PROFPE=="A5"|PROFPE=="A4")& PROFME=="A3") ~ "IIC",
+      PROFPE=="A5"&PROFME=="A10" ~"IID",
+      (PROFPE=="A5"&(PROFME=="A5"|PROFME=="A6"))|((PROFPE=="A6"|PROFPE=="A7")& PROFME=="A10") ~ "IIIA",
+      (PROFPE=="A5"&(PROFME=="A7"|PROFME=="A9"))|((PROFPE=="A8"|PROFPE=="A10")& PROFME=="A10") ~ "IIIB",
+      PROFPE=="A6"&PROFME=="A5" ~"IIIC",
+            PROFPE=="A3"&PROFME=="A3" ~"IVA",
+      (PROFPE=="A3"&(PROFME=="A7"|PROFME=="A9"))|((PROFPE=="A8"|PROFPE=="A10")& PROFME=="A3") ~ "IVA",
+      (PROFPE=="A3"&(PROFME=="A5"|PROFME=="A6"))|((PROFPE=="A6"|PROFPE=="A17")& PROFME=="A3") ~ "IVB",
+      PROFPE=="A7"&PROFME=="A6" ~"VB",
+           PROFPE=="A6"&PROFME=="A6" ~"VA",
+           PROFPE=="A7"&PROFME=="A6" ~"VB",
+          (PROFPE=="A6"&(PROFME=="A7"|PROFME=="A9"))|((PROFPE=="A8"|PROFPE=="A10")& PROFME=="A6") ~ "VIA",
+          (PROFPE=="A7"&(PROFME=="A7"|PROFME=="A9"))|((PROFPE=="A8"|PROFPE=="A10")& PROFME=="A6") ~ "VIB",
+          (PROFPE=="A8"&(PROFME=="A7"|PROFME=="A9"))|((PROFPE=="A8"|PROFPE=="A10")& PROFME=="A7") ~ "VII",
+      
+      TRUE ~ NA_character_
+      
+    ),
+    PCS_parents_red = case_when(
+      PCS_parents %in% c("IA", "IB") ~ "dom_cadre",
+      PCS_parents %in% c("IIA", "IIB", "IIC", "IID") ~ "dom_inter",
+      PCS_parents %in% c("IIIA", "IIIB", "IIIC") ~ "dom_employe",
+      PCS_parents %in% c("IVA", "IVB") ~ "dom_petit_indé",
+      PCS_parents %in% c("VA", "VB") ~ "dom_ouvriere",
+      PCS_parents %in% c("VIA", "VIB") ~ "mono_emplo_ouvr",
+      PCS_parents == "VII" ~ "inactif",
+      TRUE ~ NA_character_
+    )
+  )
+
+table(data$PROFPE,useNA="always")
+table(data$PROFME,useNA="always")
+table(data$PCS_parents_red,useNA="always")
+
+
+data <- data %>%
+  mutate(
+    SITPROPR = case_when(
+      
+      # priorité 1 : études
+      SITsq004 == "1" ~ "Études",
+      
+      # priorité 2 : travail
+      SITsq001== "1" |
+      SITsq002 == "1" ~ "Travail",
+      
+      # priorité 3 : chômage
+      SITsq003 == "1" ~ "Chômage",
+      
+      # priorité 4 : retraite
+      SITsq005 == "1" ~ "Retraite",
+      
+      TRUE ~ NA_character_
+    )
+  )
+
+
+data <- data %>%
+  mutate(
+    situation_familiale = case_when(
+      
+      # vit seul
+      FAMsq001 == "1" ~ "Seul",
+      
+      # entouré (au moins une autre modalité)
+      FAMsq002 == "1" |
+      FAMsq003 == "1" |
+      FAMsq004 == "1" ~ "Entouré",
+      
+      TRUE ~ NA_character_
+    )
+  )
+
+
+table(data$COU,data$situation_familiale)
+
+
+data <- data %>%
+  mutate(
+    PCS_RECODE = if_else(
+      GEN == "HOMME",
+      GSPH,
+      GSPF
+    ),
+    
+    classe_sociale = case_when(
+      SITPROPR == "Études" | PCS_RECODE == "A8" ~ NA_character_,
+      
+      PCS_RECODE %in% c("A1", "A2", "A3") ~ "Classes supérieures",
+      
+      PCS_RECODE == "A10" ~ "Classes moyennes",
+      
+      PCS_RECODE %in% c("A4", "A5") ~ "Classes populaires",
+      
+      TRUE ~ NA_character_
+    )
+  )
+
+
+
+
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+Recodage autres variables socio-démo
+
+```{r}
+
+
+## Recodage de data$AGE en data$AGE_REC
+data$AGE_REC <- cut(data$AGE,
+  include.lowest = TRUE,
+  right = TRUE,
+  dig.lab = 3,
+  breaks = c(18, 22, 25, 30, 40, 76),
+  labels = c("18-21", "22-25", "26-29","30-40", "40+")
+)
+
+
+
+data <- data |>
+  mutate(
+    
+    # passer en numérique
+    POIDS_num = as.numeric(POIDS),
+    TAILLE_num = as.numeric(TAILLE),
+    POIDS_num = if_else(
+      POIDS_num >= 30 & POIDS_num <= 250,
+      POIDS_num,
+      NA_real_
+    ),
+    TAILLE_num = if_else(
+      TAILLE_num >= 120 & TAILLE_num <= 250,
+      TAILLE_num,
+      NA_real_
+    ),
+    taille_m = TAILLE_num / 100,
+    
+    IMC = POIDS_num / (taille_m^2),
+    IMC = round(IMC, 1),
+    IMC_classe = case_when(
+      IMC < 18.5 ~ "Maigreur",
+      IMC < 25 ~ "Corpulence normale",
+      IMC < 30 ~ "Surpoids",
+      IMC >= 30 ~ "Obésité",
+      TRUE ~ NA_character_
+    )
+  )
+
+
+table(data$IMC_classe)
+table(data$DIP)
+
+#ATTTTETNION PAS DU TOUT SUR
+## Recodage de data$DIP en data$DIP_rec
+data$DIP_rec <- data$DIP |>
+  fct_recode(
+    "Inférieur au bac" = "DIP1",
+    "Bac" = "DIP10",
+    "Bac"="BAC",
+    "Inférieur au bac" = "DIP2",
+    "Inférieur au bac" = "DIP3",
+    "Bac+2" = "DIP4",
+    "Bac+2"="BAC2",
+    "Licence" = "DIP5",
+    "Licence"="BAC3",
+    "Master_universite" = "DIP6",
+    "Master_universite"="BAC5",
+    "Master_Grande_ecole" = "DIP7",
+    "Master_Grande_ecole"="DIPGE",
+    "Doctorat" = "DIP8",
+    "Doctorat"="BAC8",
+    NULL = "DIP9"
+  )
+
+table(data$DIP_rec)
+
+data$COU <- data$COU |>
+  fct_recode(
+    "Couple" = "A1",
+    "Couple"="COUPL",
+    "Celibataire" = "A2",
+    "Celibataire"="CELIB",
+    NULL = "A3"
+  )
+
+table(data$COU)
+
+
+data <- data %>%
+  mutate(
+    diplome_sport = case_when(
+      DIPSPsq002== "Oui" |
+      DIPSPsq004 == "Oui" |
+      DIPSPsq008 == "Oui" |
+        (!is.na(DIPSPother) & DIPSPother != "") ~ "Oui",
+      
+      is.na(DIPSPsq002) &
+        is.na(DIPSPsq004) &
+        is.na(DIPSPsq008) &
+        (is.na(DIPSPother) | DIPSPother== "") ~ NA_character_,
+      
+      TRUE ~ "Non"
+    )
+  )
+
+
+data$etranger <- ifelse(
+  data$PAYS == "AO65" & 
+    data$PAYSPE == "AO65" & data$PAYSME == "AO65",
+  "NAT",
+  ifelse(
+    data$PAYS == "AO65" & 
+      (data$PAYSPE != "AO65" | data$PAYSME != "AO65"),
+    "IM1G",
+    ifelse(
+      data$PAYS != "AO65" & 
+        (data$PAYSPE == "AO65" | data$PAYSME == "AO65"),
+      "FRT",
+      ifelse(
+        data$PAYS != "AO65" & 
+          data$PAYSPE != "AO65" & data$PAYSME != "AO65",
+        "IM2G",
+        NA
+      )
+    )
+  )
+)
+
+data <- data %>%
+  mutate(
+    STATMIG = fct_collapse(
+      etranger,
+      "Immigré1ou2G" = c("IM1G", "IM2G"),
+      "Non_immigré" = c("NAT", "FRT")
+    )
+  )
+
+data$SITFIN <- fct_recode(
+  data$SITFIN,
+  "Très à l'aise" = "A2",
+  "À l'aise" = "A3",
+  "Ça va" = "A4",
+  "C'est juste" = "A5",
+  "Vous y arrivez difficilement" = "A6",
+  "Vous ne pouvez pas y arriver sans dettes" = "A7",
+  "A8" = "A8"
+)
+
+
+data$CONTVI_rec <- case_when(
+  data$CONTVI %in% paste0("A", 3:8)  ~ "INFEG6",
+  data$CONTVI %in% paste0("A", 9:12) ~ "SUP6",
+  TRUE ~ NA_character_
+)
+
+data$GEO <- ifelse(
+  substr(as.character(data$CP), 1, 2) %in% 
+    c("75", "78", "94", "93", "91", "77", "95", "92"),
+  "IDF",
+  "Autre"
+)
+
+
+
+library(dplyr)
+library(stringr)
+library(stringi)
+
+data <- data %>%
+  mutate(
+    PROF_clean = PROF %>%
+      str_to_lower() %>%
+      stringi::stri_trans_general("Latin-ASCII") %>%
+      str_squish()
+  )
+
+table(data$PROF_clean)
+
+data %>%
+  count(PROF_clean, sort = TRUE) %>%
+  slice_head(n = 100)
+
+
+
+
+
+data <- data %>%
+  mutate(
+    PROF_cat = as.factor( case_when(
+      
+      # Ingénieurs, chercheurs, scientifiques
+str_detect(PROF_clean,
+  "ingenieur|ingenieure|chercheur|chercheuse|scientifique|cherche|research|physicien|physicienne|chimiste|mathematicien|post-doctorant|post-doctorante|mathematicienne|biologiste|astronome|geologue|laboratoire|r&d|recherche|doctorant|doctorante"
+) |
+(
+  str_detect(PROF_clean, "(ologue|ologiste)($| )") &
+  !str_detect(PROF_clean,
+    "psychologue|psychotherapeute|psychologue clinicien"
+  )
+) ~
+  "Ingénierie / recherche / sciences",
+      
+      # Sport
+      str_detect(PROF_clean,
+        "sport|sportif|sportive|entraineur|entraineuse|coach|educateur sportif|educatrice sportive|professeur d.?eps|eps|athlete|arbitre|footballeur|footballeuse|joueur professionnel|joueuse professionnelle|preparateur physique|preparatrice physique") ~
+        "Sport",
+      
+       str_detect(PROF_clean,
+        "entrepreneur|entrepreneuse|entrepreneuriat|chef d.?entreprise|dirigeant|dirigeante|patron|patronne|fondateur|fondatrice|cofondateur|cofondatrice") ~
+        "Entrepreneuriat / chef d'entreprise",
+      
+      str_detect(PROF_clean,
+        "directeur|directrice|direction|pdg|dg|directeur general|directrice generale|manager|management|responsable|cadre|chef de service|chef de departement|head of|executive") ~
+        "Direction / management",
+      
+      str_detect(PROF_clean,
+        "chef de projet|cheffe de projet|project manager|project lead|responsable de projet|gestion de projet") ~
+        "Gestion de projet",
+      
+      # Police / militaire / sécurité
+      str_detect(PROF_clean,
+        "police|policier|policiere|gendarme|militaire|armee|arme|soldat|officier|pompier|securite|douanier|douaniere|agent de securite") ~
+        "Police / militaire / sécurité",
+      
+      # Fonction publique / administration
+      str_detect(PROF_clean,
+        "fonction publique|fonctionnaire|administration|administratif|administrative|agent public|agent de l.?etat|mairie|prefecture|minist[eè]re|collectivite|territorial|service public|agent| institution publique") ~
+        "Fonction publique / administration",
+      
+      # Finance / banque / assurance
+      str_detect(PROF_clean,
+        "banque|banquier|banquiere|finance|financier|financiere|comptable|comptabilite|auditeur|audit|assurance|assureur|assureuse|courtier|courtiere|conseiller financier|conseillere financiere|gestionnaire de patrimoine|patrimoine|investissement|trader|analyste financier|credit|bourse") ~
+        "Finance / banque / assurance",
+      
+      # Informatique / numérique
+      str_detect(PROF_clean,
+        "informatic|informatique|developpeur|it|developpeuse|programmeur|programmat|data|donnees|digital|numerique|web|logiciel|software|systeme|reseau|cyber|ia|intelligence artificielle|devops|ux|ui|monteur") ~
+        "Informatique / numérique",
+      
+      # Santé
+      str_detect(PROF_clean,
+        "medecin|docteur|infirm|osteo|diet|psych|aide.?soignant|sage.?femme|pharmac|kine|psycholog|dentist|veterinaire|ergother|orthophon|medical|sante") ~
+        "Santé",
+      
+      # Enseignement / éducation
+      str_detect(PROF_clean,
+        "enseign|professeur|instituteur|institutrice|prof$|education|educateur|educatrice|formateur|formatrice|pedagog|universite|educ|prof|enseign") ~
+        "Enseignement / éducation",
+      
+      # Droit
+      str_detect(PROF_clean,
+        "avocat|avocate|juriste|droit|notaire|huissier|magistrat|magistrate|juge|legal|juridique") ~
+        "Droit / juridique",
+      
+      # Commerce / vente
+      str_detect(PROF_clean,
+        "commercial|commerciale|vendeur|vendeuse|vente|caissier|caissiere|boutique|magasin|commerce|negociateur|negociatrice|representant commercial") ~
+        "Commerce / vente",
+      
+      # Communication / marketing / médias
+      str_detect(PROF_clean,
+        "communication|communicant|marketing|publicite|journaliste|journalisme|media|redacteur|redactrice|relations publiques|community manager|influenceur|influenceuse|graphiste") ~
+        "Communication / médias / marketing",
+      
+      # BTP / bâtiment
+      str_detect(PROF_clean,
+        "macon|maconne|plombier|plombiere|electricien|electricienne|charpentier|charpentiere|couvreur|couvreuse|peintre|batiment|construction|chantier|architecte|urbaniste|menuisier|menuisiere|btp") ~
+        "BTP / bâtiment",
+      
+      # Industrie / technique
+      str_detect(PROF_clean,
+        "ouvrier|ouvriere|technicien|technicienne|production|usine|fabrication|maintenance|mecanicien|mecanicienne|electromecanicien|soudeur|soudeuse|industri|atelier") ~
+        "Industrie / métiers techniques",
+      
+      # Transport / logistique
+      str_detect(PROF_clean,
+        "chauffeur|conducteur|conductrice|transport|livreur|livreuse|logistique|cariste|routier|routiere|pilote|taxi|vtc|cheminot|prep") ~
+        "Transport / logistique",
+      
+      # Agriculture
+      str_detect(PROF_clean,
+        "agriculteur|agricultrice|agriculture|fermier|fermiere|eleveur|eleveuse|viticulteur|viticultrice|maraicher|maraichere|horticulteur|pecheur|pecheuse|paysan|paysanne") ~
+        "Agriculture",
+      
+      # Hôtellerie / restauration
+      str_detect(PROF_clean,
+        "cuisin|chef cuisinier|serveur|serveuse|restaurant|restauration|hotelier|hoteliere|hotel|boulanger|boulangere|patissier|patissiere|traiteur") ~
+        "Hôtellerie / restauration",
+      
+      # RH
+      str_detect(PROF_clean,
+        "ressources humaines|rh|recrut|ressources humain|gestionnaire de personnel|responsable personnel|talent") ~
+        "RH / recrutement",
+      
+      # Immobilier
+      str_detect(PROF_clean,
+        "immobilier|agent immobilier|agence immobiliere|promoteur immobilier|syndic|gestion locative|notaire") ~
+        "Immobilier",
+      
+      # Social
+      str_detect(PROF_clean,
+        "assistant social|assistante sociale|travailleur social|travailleuse sociale|social|aide a domicile|educateur specialise|educatrice specialisee|accompagnement") ~
+        "Social / accompagnement",
+      
+      # Arts / culture
+      str_detect(PROF_clean,
+        "artiste|musicien|musicienne|acteur|actrice|com?edien|comedienne|danseur|danseuse|chanteur|chanteuse|ecrivain|ecrivaine|photographe|peintre|culture|theatre|cinema") ~
+        "Arts / culture / création",
+      
+      # Étudiants
+      str_detect(PROF_clean,
+        "etudiant|etudiante|eleve|stagiaire") ~
+        "Étudiant",
+      
+      # Retraités
+      str_detect(PROF_clean,
+        "retraite|retraitee|pensionne|pensionnee") ~
+        "Retraité",
+      
+      # Sans emploi
+      str_detect(PROF_clean,
+        "sans emploi|sans profession|chomeur|chomeuse|demandeur d.?emploi|demandeuse d.?emploi") ~
+        "Sans emploi",
+      
+      TRUE ~ "Autre / à vérifier"
+    )
+  )
+)
+
+
+data %>%
+  count(PROF_cat, sort = TRUE)
+
+levels(data$PROF_cat)
+
+data %>%
+  filter(PROF_cat == "Autre / à vérifier") %>%
+  count(PROF_clean, sort = TRUE)
+
+
+```
+
+Tableau et graph echelle de Linkert opinions force
+
+```{r}
+library(ggstats)
+library(gtsummary)
+
+modalites <- c(
+  "AO01" = "Pas du tout d'accord",
+  "AO02" = "Plutôt pas d'accord",
+  "AO04" = "Plutôt d'accord",
+  "AO05" = "Tout à fait d'accord",
+  "AO06" = "Ne sait pas / ne souhaite pas répondre"
+)
+
+data <- data |>
+  mutate(
+    across(
+      starts_with("OPFO1"),
+      ~ factor(
+        .x,
+        levels = names(modalites),
+        labels = unname(modalites),
+        ordered = TRUE
+      )
+    )
+  )
+
+data <- data |>
+  labelled::set_variable_labels(
+    OPFO1sq002 = "Je suis fier·e d'être fort·e",
+    OPFO1sq004 = "Les muscles reflètent bien la force de quelqu'un",
+    OPFO1sq008 = "Certaines personnes sont naturellement plus fortes physiquement que d'autres",
+    OPFO1sq009 = "Faire un travail exigeant physiquement demande plus de force que de pratiquer un sport de force",
+    OPFO1sq016 = "Les femmes sont naturellement moins fortes que les hommes",
+    OPFO1sq019 = "Il est important d'être fort·e pour protéger ses proches",
+    OPFO1sq024 = "Se doper est nécessaire pour atteindre le haut niveau dans les sports de force",
+    OPFO1sq027 = "Se doper de façon contrôlée et modérée est sûr",
+    OPFO1sq028 = "Être fort·e physiquement m'aide à être séduisant·e"
+  )
+
+
+
+data_num <- data |>
+  mutate(
+    across(
+      starts_with("OPFO1"),
+      ~ case_when(
+        .x == "Pas du tout d'accord" ~ -3,
+        .x == "Plutôt pas d'accord" ~ -1,
+        .x == "Plutôt d'accord" ~ 1,
+        .x == "Tout à fait d'accord" ~ 3,
+        TRUE ~ NA_real_
+      )
+    )
+  )
+
+data_num <- data_num |>
+  labelled::set_variable_labels(
+  OPFO1sq002 = "Je suis fier·e d'être fort·e",
+    OPFO1sq004 = "Les muscles reflètent bien la force de quelqu'un",
+    OPFO1sq008 = "Certaines personnes sont naturellement plus fortes physiquement que d'autres",
+    OPFO1sq009 = "Faire un travail exigeant physiquement demande plus de force que de pratiquer un sport de force",
+    OPFO1sq016 = "Les femmes sont naturellement moins fortes que les hommes",
+    OPFO1sq019 = "Il est important d'être fort·e pour protéger ses proches",
+    OPFO1sq024 = "Se doper est nécessaire pour atteindre le haut niveau dans les sports de force",
+    OPFO1sq027 = "Se doper de façon contrôlée et modérée est sûr",
+    OPFO1sq028 = "Être fort·e physiquement m'aide à être séduisant·e"
+  )
+
+list(
+
+  # Tableau des pourcentages
+  data |>
+    tbl_likert(
+      include = starts_with("OPFO1")
+    ),
+
+  # Tableau des moyennes et écarts-types
+  data_num |>
+    tbl_wide_summary(
+      statistic = c("{mean}", "{sd}"),
+      type = ~ "continuous",
+      include = starts_with("OPFO1"),
+      digits = ~ 1
+    )
+
+) |>
+  tbl_merge(tab_spanner = FALSE)
+
+data |>
+  gglikert_stacked(
+    include = starts_with("OPFO1"),
+    sort = "descending"
+  ) +
+  guides(fill = guide_legend(nrow = 2))
+
+data |>
+  filter(!is.na(GEN_DIC)) |>
+  gglikert(
+    include = starts_with("OPFO1"),
+    y = "GEN",
+    facet_rows = vars(.question),
+    facet_label_wrap = 50
+  ) +
+  guides(fill = guide_legend(nrow = 2))
+
+```
+
+Tableau et graph échelles de Linkert opinions santé
+
+a decouper en deux + VOIR COMMENT GERER NA et ne souhaite pas répondre 
+
+
+```{r}
+
+
+modalites <- c(
+  "AO01" = "Pas du tout d'accord",
+  "AO02" = "Plutôt pas d'accord",
+  "AO04" = "Plutôt d'accord",
+  "AO05" = "Tout à fait d'accord",
+  "AO06" = "Ne sait pas / ne souhaite pas répondre"
+)
+
+data <- data |>
+  mutate(
+    across(
+      starts_with("OPSA1"),
+      ~ factor(
+        .x,
+        levels = names(modalites),
+        labels = unname(modalites),
+        ordered = TRUE
+      )
+    )
+  )
+
+data <- data |>
+  labelled::set_variable_labels(
+    OPSA1sq001 = "Je vais voir le medecin uniquement si je suis malade/bléssé.e",
+    OPSA1sq002 = "Il est toujours bon pour la santé de faire du sport",
+    OPSA1sq003 = "Le fait de progresser ou d'avoir de bons résultats sportifs indique un bon état de santé",
+    OPSA1sq004 = "Je fais confiance aux médecins",
+    OPSA1sq005 = "Contrôler son poids est une question de discipline",
+    OPSA1sq006 = "Une mauvaise santé se manifeste par des sensations physiques désagréables",
+    OPSA1sq009 = "Quand je suis malade ou que j'ai des douleurs, je vais m'entrainer",
+    OPSA1sq007 = "Tant qu'une douleur n'empêche pas de réaliser ses activités quotidiennes, il ne faut pas s'inquiéter",
+    OPSA1sq008 = "Ce n'est pa bien de se plaidre de sa santé car c'est pire pour d'autres"
+  )
+
+
+data_num <- data |>
+  mutate(
+    across(
+      starts_with("OPSA1"),
+      ~ case_when(
+        .x == "Pas du tout d'accord" ~ -3,
+        .x == "Plutôt pas d'accord" ~ -1,
+        .x == "Plutôt d'accord" ~ 1,
+        .x == "Tout à fait d'accord" ~ 3,
+        TRUE ~ NA_real_
+      )
+    )
+  )
+
+data_num <- data_num |>
+  labelled::set_variable_labels(
+    OPSA1sq001 = "Je vais voir le medecin uniquement si je suis malade/bléssé.e",
+    OPSA1sq002 = "Il est toujours bon pour la santé de faire du sport",
+    OPSA1sq003 = "Le fait de progresser ou d'avoir de bons résultats sportifs indique un bon état de santé",
+    OPSA1sq004 = "Je fais confiance aux médecins",
+    OPSA1sq005 = "Contrôler son poids est une question de discipline",
+    OPSA1sq006 = "Une mauvaise santé se manifeste par des sensations physiques désagréables",
+    OPSA1sq009 = "Quand je suis malade ou que j'ai des douleurs, je vais m'entrainer",
+    OPSA1sq007 = "Tant qu'une douleur n'empêche pas de réaliser ses activités quotidiennes, il ne faut pas s'inquiéter",
+    OPSA1sq008 = "Ce n'est pa bien de se plaidre de sa santé car c'est pire pour d'autres"
+  )
+
+list(
+
+  # Tableau des pourcentages
+  data |>
+    tbl_likert(
+      include = starts_with("OPSA1")
+    ),
+
+  # Tableau des moyennes et écarts-types
+  data_num |>
+    tbl_wide_summary(
+      statistic = c("{mean}", "{sd}"),
+      type = ~ "continuous",
+      include = starts_with("OPSA1"),
+      digits = ~ 1
+    )
+
+) |>
+  tbl_merge(tab_spanner = FALSE)
+
+data |>
+  gglikert_stacked(
+    include = starts_with("OPSA1"),
+    sort = "descending"
+  ) +
+  guides(fill = guide_legend(nrow = 2))
+
+
+
+```
+
+
+Recodage question ouverte définition de la force 
+```{r}
+
+
+data <- data %>%
+  mutate(
+    
+    # Nettoyage du texte
+    DEFFO_clean = DEFFO %>%
+      str_to_lower() %>%
+      stringi::stri_trans_general("Latin-ASCII"),
+    
+    
+    # ========================================================
+    # 1. Force fonctionnelle
+    # ========================================================
+    
+    force_fonctionnelle = if_else(
+      str_detect(
+        DEFFO_clean,
+        "vite|rapid|endurance|perform|agil|coord|sport|effic|quotid|mouvement|courir"
+      ),
+      1L,
+      0L,
+      missing = 0L
+    ),
+    
+    
+    # ========================================================
+    # 2. Soulever / porter du lourd
+    # ========================================================
+    
+    soulever_lourd = if_else(
+      str_detect(
+        DEFFO_clean,
+        "soulev|porter|charge|poid|lourd|halter|pierre|muscu|developp"
+      ),
+      1L,
+      0L,
+      missing = 0L
+    ),
+    
+    
+    # ========================================================
+    # 3. Type de force
+    # ========================================================
+    
+    type_force = case_when(
+      
+      force_fonctionnelle == 1 &
+        soulever_lourd == 0 ~ "fonctionnelle",
+      
+      force_fonctionnelle == 0 &
+        soulever_lourd == 1 ~ "soulever lourd",
+      
+      force_fonctionnelle == 1 &
+        soulever_lourd == 1 ~ "mixte",
+      
+      TRUE ~ "autre"
+    )
+  )
+
+
+```
+Recodage question ouverte corps idéal
+
+```{r}
+
+data <- data %>%
+  mutate(
+    
+    # Nettoyage du texte
+    MORPHO_clean = MORPHO %>%
+      str_to_lower() %>%
+      stringi::stri_trans_general("Latin-ASCII"),
+    
+    # 1. Santé / bien-être
+    morpho_sante = if_else(
+      str_detect(
+        MORPHO_clean,
+        "aise|sent bien|sens bien|peau|sante|bien etre|bien-etre"
+      ),
+      1L,
+      0L,
+      missing = 0L
+    ),
+    
+    # 2. Fonctionnel / utilité
+    morpho_fonctionnel = if_else(
+      str_detect(
+        MORPHO_clean,
+        "fonctionnel|fonctionel|hybride|polyvalence|polyvalent|utilite|quotidien|permet"
+      ),
+      1L,
+      0L,
+      missing = 0L
+    ),
+    
+    # 3. Muscles / définition musculaire
+    morpho_muscle = if_else(
+      str_detect(
+        MORPHO_clean,
+        "musc|sec|taux|masse|definition"
+      ),
+      1L,
+      0L,
+      missing = 0L
+    ),
+    
+    # 4. Volume / corpulence
+    morpho_volum = if_else(
+      str_detect(
+        MORPHO_clean,
+        "volume|volumineux|epais"
+      ),
+      1L,
+      0L,
+      missing = 0L
+    )
+  )
+
+ 
+ data <- data %>%
+  mutate(
+    n_categories = morpho_sante +
+                   morpho_fonctionnel +
+                   morpho_muscle +
+                   morpho_volum
+  )
+
+ 
+
+ 
+```
+
+
+```{r}
+data <- data %>%
+  mutate(MULTIPRAT = as.integer(
+    rowSums(across(starts_with("PRATSF"), ~ . == "1"), na.rm = TRUE) > 1
+  ))
+
+#Creation variable représentation  alimentation determinant force et santé
+  
+
+data <- data %>%
+  mutate(
+    alimdetforce = as.factor(
+      case_when(
+        DETFO1 == "A2" |
+        DETFO2 == "A2" |
+        DETFO3 == "A2" ~ "Oui",
+        is.na(DETFO1) &
+          is.na(DETFO2) &
+          is.na(DETFO3) ~ NA_character_,
+        TRUE ~ "Non"
+      )
+    ),
+    
+    alimdetsante = as.factor(
+      case_when(
+        DETSAN1 == "AO02" |
+        DETSAN2 == "AO02" |
+        DETSAN3` == "AO02" ~ "Oui",
+        
+        is.na(DETSAN1) &
+          is.na(DETSAN2) &
+          is.na(DETSAN3) ~ NA_character_,
+        
+        TRUE ~ "Non"
+      )
+    )
+  )
+
+
+data$mesure_multi <- ifelse(
+  !is.na(data$D_mesure_corps) &
+    !is.na(data$D_mesure_hygiene_vie) &
+    !is.na(data$D_mesure_nutrition) &
+    data$D_mesure_corps == 1 &
+    data$D_mesure_hygiene_vie == 1 &
+    data$D_mesure_nutrition == 1,
+  1, 0
+)
+
+multicomplements et score opt_regspe + nb ?
+
+
+data <- data %>%
+  mutate(
+    comportements_troubles = if_else(
+      rowSums(
+        across(c(`ED[SQ002]`, `ED[SQ003]`, `ED[SQ004]`),
+               ~ . == "Oui"),
+        na.rm = TRUE
+      ) > 0,
+      "Oui",
+      "Non"
+    )
+  )
+
+  
+## Recodage de data$OBJNUTP en data$OBJNUTP_INTER
+data <- data %>%
+  mutate(
+    OBJNUTP_INTER = as.numeric(`OBJNUT[SQ002]`),
+    
+    OBJNUTP_INTER = case_when(
+      is.na(`OBJNUT[SQ002]`) ~ NA_character_,
+      `OBJNUT[SQ002]`>= 40 & `OBJNUT[SQ002]`< 100 ~ "70-100",
+      `OBJNUT[SQ002]` >= 100 & `OBJNUT[SQ002]`<= 150 ~ "100-150",
+      `OBJNUT[SQ002]` > 150 ~ "+de150"
+    )
+  )
+
+data <- data %>%
+  mutate(
+    OBJNUTP = case_when(
+      is.na(OBJNUTP) ~ NA_real_,
+      OBJNUTP > 2000 ~ NA_real_,
+      TRUE ~ OBJNUTP
+    ),
+    
+    protsurpoids = case_when(
+      is.na(OBJNUTP) | is.na(POIDS) | POIDS == 0 | POIDS > 150 ~ NA_real_,
+      TRUE ~ OBJNUTP / POIDS
+    )
+  )
+
+data <- data %>%
+  mutate(
+    protsurpoids_classe = case_when(
+      is.na(protsurpoids) ~ NA_character_,
+      
+      protsurpoids < 1 ~ "<1",
+      protsurpoids >= 1 & protsurpoids < 1.5 ~ "1-1,5",
+      protsurpoids >= 1.5 & protsurpoids <= 2 ~ "1,5-2",
+      protsurpoids > 2 ~ "2+"
+    )
+  )
+
+data <- data |>
+  mutate(
+    proteines_viande_rouge = if_else(
+      `ALIM[SQ004]` == "Oui",
+      "Oui",
+      "Non",
+      missing = "Non"
+    ),
+    
+    proteines_viande_blanche = if_else(
+      `ALIM[SQ005]` == "Oui",
+      "Oui",
+      "Non",
+      missing = "Non"
+    ),
+    
+    viande = if_else(
+      `ALIM[SQ004]` == "Oui"|
+        `ALIM[SQ005]` == "Oui",
+      "Oui",
+      "Non",
+      missing = "Non"
+    ),
+    
+    proteines_animales = if_else(
+      `ALIM[SQ004]` == "Oui" |
+        `ALIM[SQ005]` == "Oui" |
+        `ALIM[SQ003]` == "Oui" |
+        `ALIM[SQ022]` == "Oui",
+      "Oui",
+      "Non",
+      missing = "Non"
+    ),
+    
+    proteines_tout = if_else(
+      `ALIM[SQ004]` == "Oui" |
+        `ALIM[SQ005]` == "Oui" |
+        `ALIM[SQ003]` == "Oui" |
+        `ALIM[SQ022]` == "Oui" |
+        `ALIM[SQ006]` == "Oui",
+      "Oui",
+      "Non",
+      missing = "Non"
+    ),
+    
+    nb_produits_prot = rowSums(
+      across(
+        c(
+          `ALIM[SQ004]`,
+          `ALIM[SQ005]`,
+          `ALIM[SQ003]`,
+          `ALIM[SQ022]`,
+          `ALIM[SQ006]`
+        ),
+        ~ .x == "Oui"
+      ),
+      na.rm = TRUE
+    ),
+    
+    multiprot = if_else(
+      nb_produits_prot > 1,
+      "Oui",
+      "Non"
+    )
+  )
+
+data <- data |>
+  mutate(
+    
+    # repas complet :
+    # protéines + aliment de base + accompagnement
+    
+    repas_complet = if_else(
+      proteines_tout == "Oui" &
+        `ALIM[SQ001]` == "Oui" &
+        (
+          `ALIM[SQ006]` == "Oui" |
+            `ALIM[SQ020]` == "Oui"
+        ),
+      "Oui",
+      "Non",
+      missing = "Non"
+    ),
+    
+    # sucre / salé
+    
+    sucre_sale = if_else(
+      `ALIM[SQ014]` == "Oui" |
+        `ALIM[SQ021]` == "Oui",
+      "Oui",
+      "Non",
+      missing = "Non"
+    )
+
+## Recodage de data$`ALIM[SQ001]` en data$legumes
+data$legumes <- data$`ALIM[SQ001]` |>
+  fct_recode(
+    NULL = "N/A"
+  )
+
+
+
+
+```
+
+
+
+
+```{r}
+
+forcer_choix_unique <- function(data, seq_vars, variable, variableunique) {
+  
+  new_col <- paste0(variable, "_FIRST")
+  
+  data %>%
+    rowwise() %>%
+    mutate(
+      !!new_col := {
+        
+        x <- cur_data()[seq_vars]
+        x <- unlist(x, use.names = TRUE)
+        
+        nm <- names(x)[x == "1"]
+        
+        if (length(nm) > 1) {
+          .data[[variableunique]]
+        } else if (length(nm) == 1) {
+          nm
+        } else {
+          NA_character_
+        }
+      }
+    ) %>%
+    ungroup()
+}
+
+
+```
+
+CREATION INDICAREURS UNIQUES QUAND PLURI
+
+Pratique sport de force principal
+```{r}
+
+data <- data %>%
+  forcer_choix_unique(
+    seq_vars = names(select(., starts_with("PRATSF"), -`PRATSF[other]`)),
+    variable = "PRATSF",
+    variableunique = "PRINSF"
+  )
+
+table(data$PRATSF_FIRST)
+
+
+```
+
+Critère choix alimentaire principal
+```{r}
+
+data <- data %>%
+  forcer_choix_unique(
+    seq_vars = names(select(., starts_with("CHOIXAL"))),
+    variable = "CHOIXAL",
+    variableunique = "CHOIXALPR"
+  )
+
+table(data$CHOIXAL_FIRST)
+
+```
+
+Motivation principal pratique sport de force
+
+```{r}
+
+
+data <- data %>%
+  forcer_choix_unique(
+    seq_vars = names(select(., starts_with("MOTIVSF"), -`MOTIVSF[other]`)),
+    variable = "MOTIVSF",
+    variableunique = "MOTIVSFPR"
+  )
+
+table(data$MOTIVSF_FIRST)
+```
+
+Objectif physique principal 
+
+```{r}
+
+
+data <- data %>%
+  forcer_choix_unique(
+    seq_vars = names(select(., starts_with("OBJPHYS"), -`OBJPHYS[other]`)),
+    variable = "OBJPHYS",
+    variableunique = "OBJPHYSPR"
+  )
+
+table(data$OBJPHYS_FIRST)
+```
+
+
+
+TABLEAU ECHANTILLON
+
+```{r}
+
+
+
+d |> 
+  tbl_summary(
+    include = hard.rock:sport,
+    value = everything() ~ "Oui",
+    type = everything() ~ "dichotomous"
+  )
+
+
+
+library(guideR)
+d |> 
+  plot_multiple_answers(
+    hard.rock:sport,
+    value = "Oui",
+    sort = "descending",
+    fill = "#4477AA",
+    flip = TRUE
+  )
+
+
+
+library(guideR)
+d |> 
+  plot_multiple_answers(
+    
+    hard.rock:sport,
+    value = "Oui",
+    by = sexe,
+    sort = "descending",
+    mapping = aes(fill = sexe),
+    show.legend = FALSE,
+    flip = TRUE
+  ) +
+  khroma::scale_fill_bright()
+
+table(data$PRATSF)
+data$PRATS
+
+d |> 
+  plot_multiple_answers_dodge(
+    hard.rock:sport,
+    value = "Oui",
+    by = sexe,
+    sort = "ascending",
+    flip = TRUE
+  ) +
+  khroma::scale_fill_bright()
+
+
+
+d |> 
+  tbl_summary(
+    include = hard.rock:sport,
+    by = sexe,
+    value = everything() ~ "Oui",
+    type = everything() ~ "dichotomous"
+  ) |> 
+  add_overall(last = TRUE) |> 
+  add_p() |> 
+  bold_p()*
+  levels(data$PROF_cat)
+
+table(data$COMPSF)
+
+```
+
+
+ATTTTTTTEENTIOPROF_catATTTTTTTEENTION ECHELLE D ELINKERT A FAIRE A LA FIN OU RECHANGER LA FIORMUALTION CAR LA UTILISARION DE OPFO ET OPSA AVEC MODALITES EN A non recodées
+
+```{r}
+# ============================================================
+# FONCTION SCORE CENTRÉ-RÉDUIT
+# ============================================================
+
+z_score <- function(x) {
+  ifelse(
+    sd(x, na.rm = TRUE) == 0,
+    0,
+    (x - mean(x, na.rm = TRUE)) / sd(x, na.rm = TRUE)
+  )
+}
+
+table(data$CONTVI_rec)
+# ============================================================
+# PIPELINE
+# ============================================================
+
+data_indic <- data %>%
+
+  # ----------------------------------------------------------
+  # 1. INDICATEURS ÉLÉMENTAIRES
+  # ----------------------------------------------------------
+
+
+  mutate(
+
+    # MUSCLES / FORCE
+    muscles_force_i =
+      as.integer(OPFO1sq004 %in% c("AO04", "AO05")),
+
+    # CAPITAL SOCIAL CORPOREL
+    cs_actcoach_free_i =
+      as.integer(ACTCOACH %in% c("PLRFR","A4")),
+
+    cs_fierte_force_i =
+      as.integer(OPFO1sq002 %in% c("AO04", "AO05")),
+
+    cs_reseaux_soc_i =
+      as.integer(RESSOC %in% c("OUI", "AO05")),
+
+    cs_niv_mond_i =
+      as.integer(NIVOBJ  %in% c("MOND", "A3")),),
+
+    cs_force_seduction_i =
+      as.integer(OPFO1sq008 %in% c("AO04", "AO05")),
+
+    cs_proteger_proches_i =
+      as.integer(OPFO1sq019 %in% c("A004", "A005")),
+
+
+    # CAPITAL ÉCONOMIQUE CORPOREL
+    ce_actcoach_rem_i =
+      as.integer(ACTCOACH %in% c("PLTRA", "PLARG","A2","A3")),
+
+    ce_motiv_pro_i =
+      as.integer(MOTIVSFsq008 == "1"),
+
+    ce_diplome_sport_i =
+      as.integer(diplome_sport == "Oui"),
+
+    ce_profession_physique_i =
+      as.integer(PROF_cat %in% c("Sport","Police / militaire / sécurité", "BTP / bâtiment", "Agriculture")),
+
+    # OPTIMISATION / RATIONALISATION / CONTRÔLE
+    opt_planif_al_i =
+      as.integer(PLANAL %in% c("AO02", "AO03", "AO04", "AO05")),
+   
+     pas_att_alim_i =
+      as.integer(PLANAL =="AO02"),
+    opt_coach_i =
+      as.integer(COACH %in% c("COACH", "1")),
+
+    opt_seche_i =
+      as.integer(REGSPEsq001 == "1"),
+
+    opt_prise_masse_i =
+      as.integer(REGPSEsq002 == "1"),
+
+    opt_water_cut_i =
+      as.integer(REGPSEsq003 == "1"),
+
+    opt_regime_amaigr_i =
+      as.integer(REGSPEsq004 == "1"),
+
+    opt_pratiques_boulimie_i =
+      as.integer(EDsq003 == "1"),
+
+    opt_pratiques_anorexie_i =
+      as.integer(EDsq004 == "1"),
+
+    opt_prework_i =
+      as.integer(COMPLsq003 == "1"),
+
+    opt_prot_poudres_i =
+      as.integer(COMPLsq004 == "1"),
+
+    opt_créatine_i =
+      as.integer(COMPLsq008 == "1"),
+
+    opt_steroides_i =
+      as.integer(COMPLsq010 == "1"),
+
+    opt_obj_cal_i =
+      as.integer(OBJNUTsq001 == "A1"),
+
+    opt_obj_prot_i =
+      as.integer(OBJNUTsq002 == "A1"),
+
+    alcool_drogues_i =
+      as.integer(COMPLsq005 == "1"|COMPLsq009=="1"),
+
+    # MESURE
+    mesure_conso_eau_i =
+      as.integer(SUIVsq001 == "1"),
+
+    mesure_conso_cal_i =
+      as.integer(SUIVSQ004 == "1"),
+
+    mesure_conso_prot_i =
+      as.integer(SUIVsq005 == "1"),
+
+    mesure_conso_lip_i =
+      as.integer(SUIVsq006 == "1"),
+
+    mesure_conso_gluc_i =
+      as.integer(SUIVsq007 == "1"),
+
+    mesure_hyg_sommeil_i =
+      as.integer(SUIVsq002 == "1"),
+
+    mesure_hyg_nb_pas_i =
+      as.integer(SUIVsq003 == "1"),
+
+    mesure_corps_poids_i =
+      as.integer(SUIVsq008 == "1"),
+
+    mesure_corps_taille_i =
+      as.integer(SUIVsq009 == "1"),
+
+    mesure_corps_photo_i =
+      as.integer(SUIVsq010 == "1"),
+
+
+    # DÉTERMINISME SOCIAL CORPOREL
+    det_social_sante_trav_i =
+      as.integer(  DETSAN1 == "AO03" |
+        DETSAN2 == "AO03" |
+        DETSAN3 == "AO03"),
+
+    det_social_sante_cond_vie_i =
+      as.integer(  DETSAN1 == "AO04" |
+        DETSAN2 == "AO04" |
+        DETSAN3 == "AO04"),
+
+    det_social_sante_revenus_i =
+      as.integer(DETSAN1 == "AO05" |
+        DETSAN2 == "AO05" |
+        DETSAN3 == "AO05"),
+
+    det_social_sante_soutien_i=
+      as.integer(  DETSAN1 == "AO08" |
+        DETSAN2 == "AO08" |
+        DETSAN3 == "AO08"),
+
+    det_social_sante_acces_i =
+      as.integer(  DETSAN1 == "AO09" |
+        DETSAN2 == "AO09" |
+        DETSAN3 == "AO09"),
+
+
+    # FATALISME
+    fatal_pas_contvie_i =
+      as.integer(CONTVI_rec=="INFEG6",
+
+    fatal_detsan_gene_i=
+      as.integer(DETSAN1 == "AO07" |
+        DETSAN2 == "AO07" |
+        DETSAN3 == "AO07"),
+
+    fatal_detsan_chance_i =
+      as.integer(DETSAN1 == "AO11" |
+        DETSAN2 == "AO011" |
+        DETSAN3 == "AO011"),
+
+    fatal_pire_soi_i=
+      as.integer(OPSA1sq008 %in% c("A004", "A005")),
+
+
+    # INSTRUMENTALISME
+    instr_ent_doul_i =
+      as.integer(OPSA1sq009 %in% c("A004", "A005")),
+
+    instr_douleur_inquiet_i=
+      as.integer(OPSA1sq007 %in% c("A004", "A005")),
+
+
+    # NÉOLIBÉRALISATION
+    neolib_detfo_entr_i =
+      as.integer(DETFO1 == "A6" |
+        DETFO2 == "A6" |
+        DETFO3 == "A6"),
+
+    neolib_detfo_volonte_i=
+      as.integer(DETFO1 == "A12" |
+        DETFO2 == "A12" |
+        DETFO3 == "A12"),
+
+    neolib_detfo_discipline_i =
+      as.integer(DDETFO1 == "A14" |
+        DETFO2 == "A14" |
+        DETFO3 == "A14"),
+
+    neolib_detfo_alim_i =
+      as.integer(DETFO1 == "A2" |
+        DETFO2 == "A2" |
+        DETFO3 == "A2"),
+
+    neolib_detfo_010 =
+      as.integer(DETFO == "A010"),
+
+    neolib_detsan_001 =
+      as.integer(DETSAN1 == "AO07" |
+        DETSAN2 == "AO07" |
+        DETSAN3 == "AO07"),
+
+    neolib_detsan_hab_vie_i =
+      as.integer(DETSAN1 == "AO06" |
+        DETSAN2 == "AO06" |
+        DETSAN3 == "AO06"),
+
+    neolib_detsan_educ_i =
+      as.integer(DETSAN1 == "AO11" |
+        DETSAN2 == "AO11" |
+        DETSAN3 == "AO11"),
+
+    neolib_detsan_alim_i =
+      as.integer(DETSAN1 == "AO02" |
+        DETSAN2 == "AO02" |
+        DETSAN3 == "AO02"),
+
+    neolib_poids_disci_i =
+      as.integer(OPSA1sq005 %in% c("A004", "A005")),
+
+
+    # CONSOMMATION MÉDICALE / PRÉVENTION
+    med_blessure =
+      as.integer(BLESSF == "A1"),
+
+    med_003 =
+      as.integer(OPSA1SQ003 %in% c("A001", "A002")),
+
+    med_004 =
+      as.integer(OPSA1SQ004 %in% c("A004", "A005")),
+
+    med_006 =
+      as.integer(OPSA1SQ006 %in% c("A001", "A002")),
+
+    med_009 =
+      as.integer(OPSA1SQ009 %in% c("A001", "A002")),
+
+    med_007 =
+      as.integer(OPSA1SQ007 %in% c("A001", "A002")),
+
+    med_008 =
+      as.integer(OPSA1SQ008 %in% c("A001", "A002")),
+
+
+    # BIOLOGISATION
+    bio_008 =
+      as.integer(OPFO1SQ008 %in% c("A004", "A005")),
+
+    bio_016 =
+      as.integer(OPFO1SQ016 %in% c("A004", "A005")),
+
+    bio_detfo =
+      as.integer(DETFO == "A008"),
+
+    bio_detsan =
+      as.integer(DETSAN == "A007"),
+
+
+    # OPPOSITION OBJECTIF ESTHÉTIQUE
+    opposition_edsq =
+      as.integer(EDSQ001 != "Y"),
+
+    opposition_motiv =
+      as.integer(MOTIVSFSQ003 != "Y"),
+
+    opposition_objphys =
+      as.integer(OBJPHYSSQ014 != "Y"),
+
+
+    # AFFIRMATION OBJECTIF ESTHÉTIQUE
+    affirmation_edsq =
+      as.integer(EDSQ001 == "Y"),
+
+    affirmation_motiv =
+      as.integer(MOTIVSFSQ003 == "Y"),
+
+    affirmation_objphys =
+      as.integer(OBJPHYSSQ014 == "Y"),
+
+
+    # PERFORMANCE
+    compet_i =
+      as.integer(COMPSF == "A1"),
+
+
+    # SPORT + SANTÉ
+    sport_sante_det_i =
+      as.integer(DETSAN1 == "AO01" |
+        DETSAN2 == "AO01" |
+        DETSAN3 == "AO01"),
+
+    sport_sante_tjs_bon_i =
+      as.integer(OPSA1sq002 %in% c("A004", "A005")),
+
+    sport_sante_progres_i =
+      as.integer(OPSA1sq003 %in% c("A004", "A005")),
+
+    
+    # CRITÈRES ALIMENTAIRES
+    critalim_sante_i =
+      as.integer(CHOIXAL_SQ004 == "1"),
+
+    critalim_nutrition_i =
+      as.integer(CHOIXALsq007 == "1")
+  ) %>%
+
+
+  # ----------------------------------------------------------
+  # 2. SCORES BRUTS
+  # ----------------------------------------------------------
+
+  mutate(
+
+    muscles_force_score =
+      muscles_force_i,
+
+
+    capital_social_corporel_score =
+      rowSums(
+        across(
+          c(
+            cs_actcoach,
+            cs_opfo,
+            cs_ressoc,
+            cs_nivobj,
+            cs_seduction,
+            cs_proches
+          )
+        ),
+        na.rm = TRUE
+      ),
+
+
+    capital_eco_corporel_score =
+      rowSums(
+        across(
+          c(
+            ce_actcoach,
+            ce_motiv,
+            ce_diplome,
+            ce_profession
+          )
+        ),
+        na.rm = TRUE
+      ),
+
+
+    consommation_culturelle_score =
+      rowSums(
+        across(
+          c(
+            culture_sq001,
+            culture_sq002,
+            culture_sq003,
+            culture_sq004
+          )
+        ),
+        na.rm = TRUE
+      ),
+
+
+    optimisation_score =
+      rowSums(
+        across(
+          c(
+            opt_planal,
+            opt_coach,
+            opt_regpse_001,
+            opt_regpse_002,
+            opt_regpse_003,
+            opt_regpse_004,
+            opt_edsq003,
+            opt_edsq004,
+            opt_regsPE_001,
+            opt_regsPE_002,
+            opt_regsPE_003,
+            opt_regsPE_004,
+            opt_compl_003,
+            opt_compl_004,
+            opt_compl_008,
+            opt_compl_010,
+            opt_objnut_001,
+            opt_objnut_002
+          )
+        ),
+        na.rm = TRUE
+      ),
+
+
+    mesure_score =
+      rowSums(
+        across(
+          c(
+            mesure_alim_001,
+            mesure_alim_004,
+            mesure_alim_005,
+            mesure_alim_006,
+            mesure_alim_007,
+            mesure_hab_002,
+            mesure_hab_003,
+            mesure_corps_008,
+            mesure_corps_009,
+            mesure_corps_010
+          )
+        ),
+        na.rm = TRUE
+      ),
+
+
+    determinisme_social_corporel_score =
+      rowSums(
+        across(
+          c(
+            det_social_003,
+            det_social_004,
+            det_social_005,
+            det_social_008,
+            det_social_009
+          )
+        ),
+        na.rm = TRUE
+      ),
+
+
+    fatalisme_corporel_score =
+      rowSums(
+        across(
+          c(
+            fatal_contvi,
+            fatal_detsan_007,
+            fatal_detsan_011,
+            fatal_opsa
+          )
+        ),
+        na.rm = TRUE
+      ),
+
+
+    instrumentalisme_score =
+      rowSums(
+        across(
+          c(
+            instr_009,
+            instr_007
+          )
+        ),
+        na.rm = TRUE
+      ),
+
+
+    neoliberalisme_corporel_score =
+      rowSums(
+        across(
+          c(
+            neolib_detfo_006,
+            neolib_detfo_012,
+            neolib_detfo_014,
+            neolib_detfo_002,
+            neolib_detfo_010,
+            neolib_detsan_001,
+            neolib_detsan_006,
+            neolib_detsan_010,
+            neolib_detsan_002,
+            neolib_opsa
+          )
+        ),
+        na.rm = TRUE
+      ),
+
+
+    consommation_medicale_score =
+      rowSums(
+        across(
+          c(
+            med_blessure,
+            med_003,
+            med_004,
+            med_006,
+            med_009,
+            med_007,
+            med_008
+          )
+        ),
+        na.rm = TRUE
+      ),
+
+
+    biologisation_score =
+      rowSums(
+        across(
+          c(
+            bio_008,
+            bio_016,
+            bio_detfo,
+            bio_detsan
+          )
+        ),
+        na.rm = TRUE
+      ),
+
+
+    opposition_esthetique_score =
+      rowSums(
+        across(
+          c(
+            opposition_edsq,
+            opposition_motiv,
+            opposition_objphys
+          )
+        ),
+        na.rm = TRUE
+      ),
+
+
+    affirmation_esthetique_score =
+      rowSums(
+        across(
+          c(
+            affirmation_edsq,
+            affirmation_motiv,
+            affirmation_objphys
+          )
+        ),
+        na.rm = TRUE
+      ),
+
+
+    performance_score =
+      performance_i,
+
+
+    sport_sante_score =
+      rowSums(
+        across(
+          c(
+            sport_sante_001,
+            sport_sante_002,
+            sport_sante_003
+          )
+        ),
+        na.rm = TRUE
+      ),
+
+
+    critalim_sante_score =
+      critalim_sante_i,
+
+
+    critalim_nutrition_score =
+      critalim_nutrition_i
+  ) %>%
+
+
+  # ----------------------------------------------------------
+  # 3. VARIABLES DICHOTOMIQUES
+  # ----------------------------------------------------------
+
+  mutate(
+
+    muscles_force_d =
+      as.integer(muscles_force_score >= 1),
+
+    capital_social_corporel_d =
+      as.integer(capital_social_corporel_score >= 1),
+
+    capital_eco_corporel_d =
+      as.integer(capital_eco_corporel_score >= 1),
+
+    consommation_culturelle_d =
+      as.integer(consommation_culturelle_score >= 1),
+
+    optimisation_d =
+      as.integer(optimisation_score >= 1),
+
+    mesure_d =
+      as.integer(mesure_score >= 1),
+
+    determinisme_social_corporel_d =
+      as.integer(determinisme_social_corporel_score >= 1),
+
+    fatalisme_corporel_d =
+      as.integer(fatalisme_corporel_score >= 1),
+
+    instrumentalisme_d =
+      as.integer(instrumentalisme_score >= 1),
+
+    neoliberalisme_corporel_d =
+      as.integer(neoliberalisme_corporel_score >= 1),
+
+    consommation_medicale_d =
+      as.integer(consommation_medicale_score >= 1),
+
+    biologisation_d =
+      as.integer(biologisation_score >= 1),
+
+    opposition_esthetique_d =
+      as.integer(opposition_esthetique_score >= 1),
+
+    affirmation_esthetique_d =
+      as.integer(affirmation_esthetique_score >= 1),
+
+    performance_d =
+      as.integer(performance_score >= 1),
+
+    sport_sante_d =
+      as.integer(sport_sante_score >= 1),
+
+    critalim_sante_d =
+      as.integer(crit alim_sante_score >= 1),
+
+    critalim_nutrition_d =
+      as.integer(critalim_nutrition_score >= 1)
+  ) %>%
+
+
+  # ----------------------------------------------------------
+  # 4. SCORES CENTRÉS-RÉDUITS
+  # ----------------------------------------------------------
+
+  mutate(
+
+    muscles_force_z =
+      z_score(muscles_force_score),
+
+    capital_social_corporel_z =
+      z_score(capital_social_corporel_score),
+
+    capital_eco_corporel_z =
+      z_score(capital_eco_corporel_score),
+
+    consommation_culturelle_z =
+      z_score(consommation_culturelle_score),
+
+    optimisation_z =
+      z_score(optimisation_score),
+
+    mesure_z =
+      z_score(mesure_score),
+
+    determinisme_social_corporel_z =
+      z_score(determinisme_social_corporel_score),
+
+    fatalisme_corporel_z =
+      z_score(fatalisme_corporel_score),
+
+    instrumentalisme_z =
+      z_score(instrumentalisme_score),
+
+    neoliberalisme_corporel_z =
+      z_score(neoliberalisme_corporel_score),
+
+    consommation_medicale_z =
+      z_score(consommation_medicale_score),
+
+    biologisation_z =
+      z_score(biologisation_score),
+
+    opposition_esthetique_z =
+      z_score(opposition_esthetique_score),
+
+    affirmation_esthetique_z =
+      z_score(affirmation_esthetique_score),
+
+    performance_z =
+      z_score(performance_score),
+
+    sport_sante_z =
+      z_score(sport_sante_score),
+
+    critalim_sante_z =
+      z_score(critalim_sante_score),
+
+    critalim_nutrition_z =
+      z_score(critalim_nutrition_score)
+  )
+
+
+
+
+data_acm <- data_indic %>%
+  mutate(
+    across(
+      ends_with("_i"),
+      ~ factor(.x, levels = c(0, 1), labels = c("Non", "Oui"))
+    ),
+    across(
+      ends_with("_d"),
+      ~ factor(.x, levels = c(0, 1), labels = c("Non", "Oui"))
+    )
+  )
+
+
+```
+
+
+Cette partie est consacrée à la création des espaces socials
+
+ANALYSES CORRESPONDANTES MULTIPLES
+
+```{r}
+mca_alimentation <- speMCA(Music[3:nrow(Music), 1:4], excl = c(3, 6, 9, 12))
+mca$supi <- indsup(mca, Music[1:2, 1:4])
+mca$supv <- speMCA_varsup(mca, Music[3:nrow(Music), 5:6])
+explor(mca)
+
+```
+
+```{r}
+mca_sport
+```
+
+```{r}
+mca_force
+```
+
+```{r}
+mca_sanitaire
+```
+
+
+```{r}
+mca_global
+```
+
+
+De manière analogue au travail de X et Y, cette partie est consacréà la mesure de l'homologie des differents espaces sociaux construits
+
+```{r}
+
+```
+
+Cette fois-ci, la démarche en s'inspirant de celle de Maël Guinberger
+
+
+```{r}
+
+```
+
